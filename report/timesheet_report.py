@@ -78,8 +78,8 @@ class ReportTimesheet(models.AbstractModel):
 
     @api.model
     def _get_report_values(self, docids, data=None):
-        docs = self.env['timesheet.report'].browse(
-            self.env.context.get('active_id'))
+        def _get_report_values(self, docids, data=None):
+            docs = self.env['timesheet.report'].browse(self.env.context.get('active_id'))
         
         # Informazioni dipendente
         identification = []
@@ -102,6 +102,18 @@ class ReportTimesheet(models.AbstractModel):
 
         timesheets, total = self.get_timesheets(docs)
 
+        company = self.env.company
+        company_data = {
+            'name': company.name or '',
+            'street': company.street or '',
+            'city': company.city or '',
+            'zip': company.zip or '',
+            'state_id': company.state_id.name if company.state_id else '',
+            'phone': company.phone or '',
+            'email': company.email or '',
+            'website': company.website or '',
+        }
+
         return {
             'doc_ids': self.ids,
             'docs': docs,
@@ -109,4 +121,5 @@ class ReportTimesheet(models.AbstractModel):
             'total': total,
             'identification': identification,
             'period': period,
+            'company_data': company_data,
         }
