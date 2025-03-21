@@ -131,14 +131,11 @@ class ReportTimesheet(models.AbstractModel):
             period = f"To {docs.to_date}"
 
         timesheet_data = self.get_timesheets(docs)
-<<<<<<< HEAD
         
         # Get submission and approval information
         timesheet_info = self.get_timesheet_submission_approval_info(
             docs.user_id[0].id, docs.from_date, docs.to_date
         )
-=======
->>>>>>> ee1c3299dc1ff30dfb8401e641f3761c12213ed1
 
         return {
             'doc_ids': self.ids,
@@ -149,10 +146,7 @@ class ReportTimesheet(models.AbstractModel):
             'timesheet_data': timesheet_data,
             'res_company': company,
             'company_data': company_data,
-<<<<<<< HEAD
             'timesheet_submitted_date': timesheet_info['submitted_date'],
             'timesheet_approved_date': timesheet_info['approved_date'],
             'reviewer_name': timesheet_info['reviewer_name'],
-=======
->>>>>>> ee1c3299dc1ff30dfb8401e641f3761c12213ed1
         }
