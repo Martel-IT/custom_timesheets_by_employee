@@ -129,6 +129,7 @@
                                     </div>
                                 </div>
                             </t>
+<<<<<<< HEAD
                             
                             <!-- New section: Submission and Approval info -->
                             <div class="row mt-5 pt-4" style="border-top: 1px solid #dee2e6;">
@@ -141,6 +142,8 @@
                                     <p><strong>Approved on:</strong> <span t-esc="timesheet_approved_date" t-options="{'widget': 'date'}"/></p>
                                 </div>
                             </div>
+=======
+>>>>>>> ee1c3299dc1ff30dfb8401e641f3761c12213ed1
                         </div>
                     </div>
 
