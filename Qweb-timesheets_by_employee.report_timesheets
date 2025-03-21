@@ -123,6 +123,28 @@
                                     </div>
                                 </div>
                             </t>
+                            
+                            <!-- Signature Section with full datetime format -->
+                            <div class="row mt-5 mb-4" style="page-break-inside: avoid; border-top: 1px solid #dee2e6; padding-top: 20px;">
+                                <div class="col-6">
+                                    <p><strong>Employee:</strong> <span t-esc="employee.name"/></p>
+                                    <p><strong>Submitted on:</strong> 
+                                        <t t-if="timesheet_submitted_date">
+                                            <span t-esc="timesheet_submitted_date" t-options="{'widget': 'datetime'}"/>
+                                        </t>
+                                        <t t-else="">Not Available</t>
+                                    </p>
+                                </div>
+                                <div class="col-6 text-right">
+                                    <p><strong>Reviewer:</strong> <span t-esc="reviewer_name"/></p>
+                                    <p><strong>Approved on:</strong> 
+                                        <t t-if="timesheet_approved_date">
+                                            <span t-esc="timesheet_approved_date" t-options="{'widget': 'datetime'}"/>
+                                        </t>
+                                        <t t-else="">Not Available</t>
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
