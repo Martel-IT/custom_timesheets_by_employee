@@ -98,9 +98,9 @@ class ReportTimesheet(models.AbstractModel):
                                 if message.author_id:
                                     result['reviewer_name'] = message.author_id.name
             
-            # If no submission date found, use timesheet creation date as fallback
-            if not result['submitted_date'] and timesheet_sheet.create_date:
-                result['submitted_date'] = timesheet_sheet.create_date
+            # No longer use creation date as fallback for submission date
+            # if not result['submitted_date'] and timesheet_sheet.create_date:
+            #     result['submitted_date'] = timesheet_sheet.create_date
             
             # Try to get reviewer information from various sources if not found in messages
             if not result['reviewer_name'] or result['reviewer_name'] == 'Not Assigned':
