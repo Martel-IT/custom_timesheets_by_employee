@@ -57,7 +57,8 @@ class ReportTimesheet(models.AbstractModel):
 
     def get_timesheet_submission_approval_info(self, user_id, from_date, to_date):
         """
-        Get timesheet submission and approval information directly from timesheet records
+        Get timesheet submission and approval information from hr_timesheet.sheet
+        and associated messages/tracking for accurate reviewer and dates
         """
         result = {
             'submitted_date': False,
@@ -65,71 +66,70 @@ class ReportTimesheet(models.AbstractModel):
             'reviewer_name': 'Not Assigned'
         }
         
-        # Find the relevant timesheet sheet for this period and user
+        # Find timesheet sheet data that matches the period
         domain = [('user_id', '=', user_id)]
         if from_date:
             domain.append(('date_start', '>=', from_date))
         if to_date:
             domain.append(('date_end', '<=', to_date))
         
-        timesheet = self.env['hr_timesheet.sheet'].search(domain, limit=1)
+        timesheet_sheet = self.env['hr_timesheet.sheet'].search(domain, order='date_end DESC', limit=1)
         
-        if timesheet:
-            # Find the message history to get accurate submission date
+        if timesheet_sheet:
+            # Look for 'state' change message to find when it was submitted or approved
             message_domain = [
                 ('model', '=', 'hr_timesheet.sheet'),
-                ('res_id', '=', timesheet.id),
-                ('subtype_id.name', 'in', ['Timesheet submitted', 'Status Changed']),
+                ('res_id', '=', timesheet_sheet.id),
             ]
-            messages = self.env['mail.message'].search(message_domain, order='date asc')
+            messages = self.env['mail.message'].search(message_domain, order='date')
             
+            # Look for tracking values related to state changes
             for message in messages:
-                # Look for submission message
-                if 'waiting' in message.body.lower() or 'submitted' in message.body.lower():
-                    result['submitted_date'] = message.date
-                    break
+                if message.tracking_value_ids:
+                    for tracking in message.tracking_value_ids:
+                        if tracking.field_desc == 'Status' and tracking:
+                            # If status changed to "Waiting Review" - it was submitted
+                            if tracking.new_value_char == 'Waiting Review' or tracking.new_value_char == 'waiting_review':
+                                result['submitted_date'] = message.date
+                                
+                            # If status changed to "Approved" - it was approved
+                            if tracking.new_value_char == 'Approved' or tracking.new_value_char == 'done':
+                                result['approved_date'] = message.date
+                                if message.author_id:
+                                    result['reviewer_name'] = message.author_id.name
             
-            # If no submission message found, use create_date
-            if not result['submitted_date']:
-                result['submitted_date'] = timesheet.create_date
+            # If no submission date found, use timesheet creation date as fallback
+            if not result['submitted_date'] and timesheet_sheet.create_date:
+                result['submitted_date'] = timesheet_sheet.create_date
             
-            # Find approval date from message history
-            approval_messages = self.env['mail.message'].search([
-                ('model', '=', 'hr_timesheet.sheet'),
-                ('res_id', '=', timesheet.id),
-                ('subtype_id.name', 'in', ['Timesheet approved', 'Status Changed']),
-            ], order='date desc', limit=1)
-            
-            if approval_messages:
-                if 'approved' in approval_messages[0].body.lower():
-                    result['approved_date'] = approval_messages[0].date
-            
-            # If no approval message, check if status is 'done' or 'approved'
-            if not result['approved_date'] and timesheet.state in ['done', 'approved']:
-                result['approved_date'] = timesheet.write_date
-            
-            # Get reviewer information - Try different fields that might contain the reviewer
-            reviewer = False
-            if hasattr(timesheet, 'reviewer_id') and timesheet.reviewer_id:
-                reviewer = timesheet.reviewer_id
-            elif hasattr(timesheet, 'manager_id') and timesheet.manager_id:
-                reviewer = timesheet.manager_id
-            
-            # If we found a reviewer, get their name
-            if reviewer:
-                result['reviewer_name'] = reviewer.name
-            else:
-                # Try to find the reviewer from the approval message
-                if approval_messages and approval_messages[0].author_id:
-                    result['reviewer_name'] = approval_messages[0].author_id.name
+            # Try to get reviewer information from various sources if not found in messages
+            if not result['reviewer_name'] or result['reviewer_name'] == 'Not Assigned':
+                if hasattr(timesheet_sheet, 'reviewer_id') and timesheet_sheet.reviewer_id:
+                    reviewer = self.env['hr.employee'].search([('user_id', '=', timesheet_sheet.reviewer_id.id)], limit=1)
+                    result['reviewer_name'] = reviewer.name if reviewer else timesheet_sheet.reviewer_id.name
+                elif hasattr(timesheet_sheet, 'manager_id') and timesheet_sheet.manager_id:
+                    result['reviewer_name'] = timesheet_sheet.manager_id.name
         
-        # If we couldn't find information from timesheet, look at chatter history
+        # If we still don't have a reviewer name, try to get from the employee's manager
         if not result['reviewer_name'] or result['reviewer_name'] == 'Not Assigned':
             employee = self.env['hr.employee'].search([('user_id', '=', user_id)], limit=1)
             if employee and employee.parent_id:
                 result['reviewer_name'] = employee.parent_id.name
-            elif employee and employee.department_id and employee.department_id.manager_id:
-                result['reviewer_name'] = employee.department_id.manager_id.name
+        
+        # If all else fails and we have tracking of approval but no reviewer name,
+        # check if there's a latest change message that might indicate who approved it
+        if result['approved_date'] and (not result['reviewer_name'] or result['reviewer_name'] == 'Not Assigned'):
+            # Look for the most recent status change message near the approval date
+            approval_messages = self.env['mail.message'].search([
+                ('model', '=', 'hr_timesheet.sheet'),
+                ('res_id', '=', timesheet_sheet.id),
+                ('date', '<=', result['approved_date']),
+            ], order='date desc', limit=5)
+            
+            for message in approval_messages:
+                if message.author_id and message.author_id.id != employee.user_id.partner_id.id:
+                    result['reviewer_name'] = message.author_id.name
+                    break
         
         return result
 
@@ -167,15 +167,6 @@ class ReportTimesheet(models.AbstractModel):
         timesheet_info = self.get_timesheet_submission_approval_info(
             docs.user_id[0].id, docs.from_date, docs.to_date
         )
-
-        # Add a manual override for the specific case shown in the screenshot
-        # This is a temporary solution to match the exact data you need
-        # In a real-world scenario, you'd want to fix the data retrieval logic more comprehensively
-        employee_name = employee.name if employee else "Unknown"
-        if employee_name == "Vito Plano":
-            timesheet_info['submitted_date'] = "2025-02-03"  # February 3, 2025
-            timesheet_info['approved_date'] = "2025-02-04"  # February 4, 2025
-            timesheet_info['reviewer_name'] = "Massimo Neri"  # The actual reviewer
 
         return {
             'doc_ids': self.ids,
