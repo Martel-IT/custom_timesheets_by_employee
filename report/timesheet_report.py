@@ -57,48 +57,52 @@ class ReportTimesheet(models.AbstractModel):
 
     def get_timesheet_submission_approval_info(self, user_id, from_date, to_date):
         """
-        Get timesheet submission and approval information
+        Get timesheet submission and approval information from hr_timesheet.sheet
         """
-        # Query for hr.timesheet records
-        domain = [('user_id', '=', user_id)]
-        if from_date:
-            domain.append(('date_start', '>=', from_date))
-        if to_date:
-            domain.append(('date_start', '<=', to_date))
-        
-        timesheet = self.env['hr.timesheet'].search(domain, limit=1)
-        
         result = {
             'submitted_date': False,
             'approved_date': False,
             'reviewer_name': 'Not Assigned'
         }
         
-        if timesheet:
-            # Get submission date from mail.message
-            mail_message = self.env['mail.message'].search([
-                ('model', '=', 'hr.timesheet'),
-                ('res_id', '=', timesheet.id),
-                ('subtype_id.name', '=', 'Timesheet Submitted')
-            ], limit=1)
-            
-            if mail_message:
-                result['submitted_date'] = mail_message.date
+        # Find timesheet sheet data
+        domain = [('user_id', '=', user_id)]
+        if from_date:
+            domain.append(('date_start', '>=', from_date))
+        if to_date:
+            domain.append(('date_end', '<=', to_date))
+        
+        # If no specific date range, just get the latest timesheet for the user
+        if not from_date and not to_date:
+            domain = [('user_id', '=', user_id)]
+        
+        timesheet_sheet = self.env['hr_timesheet.sheet'].search(domain, order='date_end DESC', limit=1)
+        
+        if timesheet_sheet:
+            # For submission date, check when the state changed to 'confirm'
+            if timesheet_sheet.state in ['confirm', 'done']:
+                result['submitted_date'] = timesheet_sheet.write_date
             else:
-                # Fallback to create_date if no submission message found
-                result['submitted_date'] = timesheet.create_date
+                result['submitted_date'] = timesheet_sheet.create_date
             
-            # Get approval date from write_date if state is 'approved'
-            if timesheet.state == 'approved':
-                result['approved_date'] = timesheet.write_date
+            # For approval date, check if state is 'done'
+            if timesheet_sheet.state == 'done':
+                result['approved_date'] = timesheet_sheet.write_date
             
             # Get reviewer information
-            if timesheet.reviewer_id:
-                reviewer = self.env['hr.employee'].search([('user_id', '=', timesheet.reviewer_id.id)], limit=1)
-                if reviewer:
-                    result['reviewer_name'] = reviewer.name
-                else:
-                    result['reviewer_name'] = timesheet.reviewer_id.name
+            if hasattr(timesheet_sheet, 'reviewer_id') and timesheet_sheet.reviewer_id:
+                reviewer = self.env['hr.employee'].search([('user_id', '=', timesheet_sheet.reviewer_id.id)], limit=1)
+                result['reviewer_name'] = reviewer.name if reviewer else timesheet_sheet.reviewer_id.name
+            elif hasattr(timesheet_sheet, 'manager_id') and timesheet_sheet.manager_id:
+                result['reviewer_name'] = timesheet_sheet.manager_id.name
+        
+        # If no timesheet sheet found or no reviewer found, try to get from employee's manager
+        if not result['reviewer_name'] or result['reviewer_name'] == 'Not Assigned':
+            employee = self.env['hr.employee'].search([('user_id', '=', user_id)], limit=1)
+            if employee and employee.parent_id:
+                result['reviewer_name'] = employee.parent_id.name
+            elif employee and employee.department_id and employee.department_id.manager_id:
+                result['reviewer_name'] = employee.department_id.manager_id.name
         
         return result
 
